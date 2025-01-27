@@ -10,14 +10,16 @@ app.use(express.json());
 app.use(
   cors({
     origin: [
-      '*',
       'http://localhost:3000',
       'http://localhost:3001',
-      `https://recalll.vercel.app`,
-    ], // Allow requests from this origin
-    credentials: true, // Allow cookies and credentials
+      'https://recalll.vercel.app',
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Allow specific HTTP methods
+    allowedHeaders: ['Content-Type', 'Authorization'], // Allow necessary headers
+    credentials: true, // Allow credentials (cookies, auth headers)
   })
 )
+
 
 app.use("/api/v1/user", userRouter);
 app.use("/api/v1/content", contentRouter);
