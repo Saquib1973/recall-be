@@ -9,7 +9,12 @@ const app = express();
 app.use(express.json());
 app.use(
   cors({
-    origin: ['*', 'http://localhost:3000', 'http://localhost:3001'], // Allow requests from this origin
+    origin: [
+      '*',
+      'http://localhost:3000',
+      'http://localhost:3001',
+      `https://recalll.vercel.app`,
+    ], // Allow requests from this origin
     credentials: true, // Allow cookies and credentials
   })
 )
