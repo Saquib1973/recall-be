@@ -13,5 +13,6 @@ const contentSchema = new Schema(
     timestamps: true,
   }
 )
+contentSchema.index({ title: 'text', description: 'text', tags: 'text' })
 
 export const ContentModel = model('content', contentSchema)

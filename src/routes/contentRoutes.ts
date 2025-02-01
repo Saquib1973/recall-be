@@ -9,5 +9,6 @@ contentRouter.get('/', userAuthMiddleware,contentController.get)
 contentRouter.delete('/',userAuthMiddleware, contentController.delete)
 contentRouter.post('/share',userAuthMiddleware, contentController.share)
 contentRouter.get('/chunk',userAuthMiddleware, contentController.getChunk)
+contentRouter.get('/search', contentController.search)
 contentRouter.get('/shared-recalls', contentController.sharedRecall)
 export default contentRouter

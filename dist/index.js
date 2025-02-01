@@ -13,10 +13,15 @@ const healthRoutes_1 = __importDefault(require("./routes/healthRoutes"));
 const app = (0, express_1.default)();
 app.use(express_1.default.json());
 app.use((0, cors_1.default)({
-    origin: ['*', 'http://localhost:3000', 'http://localhost:3001'], // Allow requests from this origin
-    credentials: true, // Allow cookies and credentials
+    origin: [
+        'http://localhost:3000',
+        'https://recalll.vercel.app',
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
 }));
-app.use("/api/v1/user", userRoutes_1.default);
-app.use("/api/v1/content", contentRoutes_1.default);
-app.use("/api/v1/health", healthRoutes_1.default);
+app.use('/api/v1/user', userRoutes_1.default);
+app.use('/api/v1/content', contentRoutes_1.default);
+app.use('/api/v1/health', healthRoutes_1.default);
 (0, db_1.default)(app);

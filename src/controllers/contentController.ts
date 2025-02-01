@@ -161,6 +161,32 @@ const contentController = {
       })
     }
   },
+  async search(req: Request, res: Response) {
+    const { q } = req.query
+
+    if (!q) {
+      res.status(400).json({ message: 'Search query is required' })
+      return
+    }
+
+    try {
+      const results = await ContentModel.find(
+        //@ts-ignore
+        { $text: { $search: q } },
+        { score: { $meta: 'textScore' } }
+      )
+        .sort({ score: { $meta: 'textScore' } })
+        .populate('userId', '-password')
+        .populate('tags')
+
+      res.status(200).json({ message: 'Search results', results });
+      return
+    } catch (error) {
+      console.error('Error searching:', error)
+      res.status(500).json({ message: 'Internal server error' });
+      return
+    }
+  },
   async sharedRecall(req: Request, res: Response) {
     const { recallId, page: no, limit: limitParam } = req.query
     const page = parseInt(no as string) || 1
