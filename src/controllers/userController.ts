@@ -31,10 +31,7 @@ const userController = {
     }
   },
   async signin(req: Request, res: Response) {
-    console.log("hit")
     const { username, password } = req.body
-    // console.log("username", username);
-    // console.log("password", password);
 
     const check = userSignInSchema.safeParse({ username, password })
     if (!check.success) {

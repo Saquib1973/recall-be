@@ -93,7 +93,6 @@ const contentController = {
         .limit(limit)
         .populate('userId', '-password')
         .populate('tags')
-      console.log(content)
       if (!content) {
         res.status(404).json({
           message: 'document does not exist',
@@ -163,6 +162,7 @@ const contentController = {
   },
   async search(req: Request, res: Response) {
     const { q } = req.query
+    console.log("entered search with the query : ",q)
 
     if (!q) {
       res.status(400).json({ message: 'Search query is required' })
