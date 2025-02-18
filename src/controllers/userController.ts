@@ -22,11 +22,27 @@ const userController = {
         password: hashedPassword,
       })
       res.status(200).json({
-        message: "User siggned up successfully",
+        message: 'User siggned up successfully',
       })
     } catch (error) {
       res.status(400).json({
         message: 'Internal server error',
+      })
+    }
+  },
+  async username(req: Request, res: Response) {
+    const { username } = req.body
+    const user = await UserModel.findOne({ username })
+    if (user) {
+      res.status(200).json({
+        value:false,
+        message: 'Username already in use',
+      })
+      return
+    } else {
+      res.status(200).json({
+        value:true,
+        message: 'Username is available',
       })
     }
   },

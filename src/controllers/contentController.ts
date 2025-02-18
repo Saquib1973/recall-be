@@ -134,18 +134,48 @@ const contentController = {
       })
     }
   },
+  async getSharedStatus(req: Request, res: Response) {
+    try {
+      const link = await LinkModel.findOne({ userId: req.userId });
+      if (!link) {
+        res.status(404).json({
+          message: 'No link found',
+        })
+        return
+      }
+      res.status(200).json({
+        message: 'Found the link',
+        link,
+
+      })
+    } catch (error) {
+      res.status(404).json({
+        message: 'No link found',
+      })
+    }
+  },
   async share(req: Request, res: Response) {
     const { share } = req.body
     try {
       if (share) {
-        const link = await LinkModel.create({
-          userId: req.userId,
-          hash: generateRandomHash(10),
-        })
-        res.status(200).json({
-          message: 'created share link',
-          link,
-        })
+        const prev = await LinkModel.findOne({ userId: req.userId });
+        if (!prev) {
+
+          const link = await LinkModel.create({
+            userId: req.userId,
+            hash: generateRandomHash(10),
+          })
+          res.status(200).json({
+            message: 'created share link',
+            link,
+          })
+        } else {
+          res.status(200).json({
+            message: 'share link already exists',
+            link: prev,
+          })
+          return
+        }
       } else {
         await LinkModel.deleteOne({
           userId: req.userId,
@@ -162,7 +192,6 @@ const contentController = {
   },
   async search(req: Request, res: Response) {
     const { q } = req.query
-    console.log("entered search with the query : ",q)
 
     if (!q) {
       res.status(400).json({ message: 'Search query is required' })
@@ -188,105 +217,77 @@ const contentController = {
     }
   },
   async sharedRecall(req: Request, res: Response) {
-    const { recallId, page: no, limit: limitParam } = req.query
-    const page = parseInt(no as string) || 1
-    const limit = parseInt(limitParam as string) || 10
-
-    if (recallId) {
-      try {
-        const link = await LinkModel.findOne({ hash: recallId })
-        if (!link) {
-          res.status(404).json({ message: 'Shared recall not found' })
-          return
-        }
-
-        if (isNaN(page) || page < 1) {
-          res.status(400).json({ message: 'Invalid page number' })
-          return
-        }
-
-        const skip = (page - 1) * limit
-        const totalContent = await ContentModel.countDocuments({
-          userId: link.userId,
+    let { hash } = req.params
+    console.log(hash);
+    try {
+      const link = await LinkModel.findOne({ hash });
+      if(!link){
+        res.status(404).json({
+          message: 'No link found',
         })
-
-        const content = await ContentModel.find({ userId: link.userId })
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(limit)
-          .populate('tags')
-          .populate('userId', '-password')
-
-        const user = await UserModel.findById(link.userId).select('-password')
-
-        res.status(200).json({
-          message: 'Found shared recall',
-          recall: {
-            content,
-            user: user || undefined,
-            shareLink: link.hash,
-            pagination: {
-              currentPage: page,
-              totalPages: Math.ceil(totalContent / limit),
-              totalContent,
-              itemsPerPage: limit,
-            },
-          },
-        })
-        return
-      } catch (error) {
-        console.error('Error fetching shared recall:', error)
-        res.status(500).json({ message: 'Internal server error' })
         return
       }
+      console.log(link)
+      try {
+        if (!link?.userId) {
+          res.status(404).json({
+            message: 'No link found',
+          })
+          return
+        }
+        let content = await ContentModel.find({
+          userId: link?.userId,
+        }).populate('userId', '-password')
+        if (!content) {
+          res.status(404).json({
+            message: 'document does not exist',
+          })
+          return
+        }
+        res.status(200).json({
+          message: 'Found the document',
+          content,
+        })
+      } catch (error) {
+        res.status(404).json({
+          message: "Coulcn't get document",
+        })
+      }
+    } catch (error) {
+      res.status(404).json({
+        message: 'No link found',
+      })
     }
 
+  },
+  async getRecallProtected(req: Request, res: Response) {
+    let { id } = req.params;
     try {
-      if (isNaN(page) || page < 1) {
-        res.status(400).json({ message: 'Invalid page number' })
+
+      const content = await ContentModel.findOne({ _id: id });
+      if (
+        content?.userId?.toString() !== req.userId) {
+        res.status(403).json({
+          message: 'You are not authorized to view this document',
+        })
         return
       }
-
-      const skip = (page - 1) * limit
-      const totalLinks = await LinkModel.countDocuments()
-      const links = await LinkModel.find()
-        .skip(skip)
-        .limit(limit)
-        .populate('userId', '-password')
-
-      const recalls = await Promise.all(
-        links.map(async (link) => {
-          const content = await ContentModel.find({
-            userId: link.userId,
-          }).populate('tags')
-          const shuffledContent = content.sort(() => Math.random() - 0.5)
-
-          return {
-            content: shuffledContent,
-            user: link.userId,
-            shareLink: link.hash,
-            totalContent: content.length,
-          }
-        })
-      )
 
       res.status(200).json({
-        message: 'Found shared recalls',
-        recalls,
-        pagination: {
-          currentPage: page,
-          totalPages: Math.ceil(totalLinks / limit),
-          totalLinks,
-          itemsPerPage: limit,
-        },
+        message: 'Found the document',
+        content,
+      })
+    } catch (error) {
+      res.status(404).json({
+        message: 'No link found',
       })
       return
-    } catch (error) {
-      console.error('Error fetching shared recalls:', error)
-      res.status(500).json({ message: 'Internal server error' })
-      return
     }
+
   },
+  async getRecallOpen(req: Request, res: Response) {
+
+  }
 }
 
 export default contentController
