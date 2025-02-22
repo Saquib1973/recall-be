@@ -14,20 +14,18 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const mongoose_1 = __importDefault(require("mongoose"));
 const config_1 = __importDefault(require("./config"));
-function connectDb(app) {
+function connectDb() {
     return __awaiter(this, void 0, void 0, function* () {
         if (!config_1.default.MONGODB_URL)
             throw new Error('MONGODB_URL is not set');
-        mongoose_1.default
+        return mongoose_1.default
             .connect(config_1.default.MONGODB_URL)
             .then(() => {
             console.log('Connected to the database');
-            app.listen(config_1.default.PORT, () => {
-                console.log(`Server is running on port ${config_1.default.PORT}`);
-            });
         })
             .catch((err) => {
             console.log('Error connecting to the database', err);
+            process.exit(1);
         });
     });
 }
