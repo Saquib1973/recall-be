@@ -9,8 +9,8 @@ const userRoutes_1 = __importDefault(require("./routes/userRoutes"));
 const db_1 = __importDefault(require("./utils/db"));
 const contentRoutes_1 = __importDefault(require("./routes/contentRoutes"));
 const cors_1 = __importDefault(require("cors"));
-const config_1 = __importDefault(require("./utils/config"));
 const app = (0, express_1.default)();
+let healthCheckCount = 0;
 app.use(express_1.default.json());
 app.use((0, cors_1.default)({
     origin: ['http://localhost:3000', 'https://recalll.vercel.app'],
@@ -19,13 +19,22 @@ app.use((0, cors_1.default)({
     credentials: true,
 }));
 app.get('/', (req, res) => {
+    console.log('Root endpoint hit');
     res.status(200).send('Server is running');
+});
+app.get('/health', (req, res) => {
+    console.log('Health endpoint hit');
+    res.status(200).send(`/health call : ${healthCheckCount++}`);
 });
 app.use('/api/v1/user', userRoutes_1.default);
 app.use('/api/v1/content', contentRoutes_1.default);
-// First connect to DB, then start the server
-(0, db_1.default)().then(() => {
-    app.listen(config_1.default.PORT, () => {
-        console.log(`Server is running on port ${config_1.default.PORT}`);
-    });
+// Start the server first
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 });
+// Then connect to DB
+(0, db_1.default)().catch((err) => {
+    console.error('Failed to connect to database:', err);
+});
+exports.default = app;

@@ -10,7 +10,6 @@ const app = express()
 let healthCheckCount = 0
 
 app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
 
 app.use(
   cors({
