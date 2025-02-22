@@ -4,7 +4,6 @@ import userRouter from './routes/userRoutes'
 import connectDb from './utils/db'
 import contentRouter from './routes/contentRoutes'
 import cors from 'cors'
-let healthCheckCount = 0;
 const app = express()
 app.use(express.json())
 app.use(
@@ -15,11 +14,11 @@ app.use(
     credentials: true,
   })
 )
-
+app.get('/', (req: Request, res: Response) => {
+  res.status(200).send('Server is running')
+})
 app.use('/api/v1/user', userRouter)
 app.use('/api/v1/content', contentRouter)
-app.get('/health', (req: Request, res: Response) => {
-  res.status(200).send(`/health call : ${healthCheckCount++}`)
-})
+
 
 connectDb(app)
