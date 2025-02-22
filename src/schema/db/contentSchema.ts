@@ -2,7 +2,7 @@ import { model, Schema } from 'mongoose'
 
 const contentSchema = new Schema(
   {
-    title: { type: String },
+    title: String,
     link: String,
     description: String,
     type: { type: String, default: 'others' },

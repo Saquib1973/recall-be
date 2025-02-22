@@ -12,12 +12,24 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.comparePassword = comparePassword;
-exports.generateRandomHash = generateRandomHash;
-exports.createPassswordHash = createPassswordHash;
-exports.findTypeOfContent = findTypeOfContent;
+exports.Password = void 0;
+exports.generateHash = generateHash;
+exports.ContentType = ContentType;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
-function generateRandomHash(length) {
+class Password {
+    static hash(password) {
+        return __awaiter(this, void 0, void 0, function* () {
+            return yield bcryptjs_1.default.hash(password, 10);
+        });
+    }
+    static compare(password, hashPassword) {
+        return __awaiter(this, void 0, void 0, function* () {
+            return yield bcryptjs_1.default.compare(password, hashPassword);
+        });
+    }
+}
+exports.Password = Password;
+function generateHash(length) {
     let options = 'qwertyuiopasdfghjklzxcvbnm1234567890';
     let len = options.length;
     let hash = '';
@@ -26,18 +38,7 @@ function generateRandomHash(length) {
     }
     return hash;
 }
-function createPassswordHash(password) {
-    return __awaiter(this, void 0, void 0, function* () {
-        let hashedPassword = yield bcryptjs_1.default.hash(password, 10);
-        return hashedPassword;
-    });
-}
-function comparePassword(password, hashPassword) {
-    return __awaiter(this, void 0, void 0, function* () {
-        return yield bcryptjs_1.default.compare(password, hashPassword);
-    });
-}
-function findTypeOfContent(item) {
+function ContentType(item) {
     const testLink = [
         'https://youtu.be/NKO-CeS1z8c?si=t0ptVmS4XldR0TW-',
         'https://www.youtube.com/watch?v=NKO-CeS1z8c',
@@ -46,21 +47,21 @@ function findTypeOfContent(item) {
         'https://www.youtube.com/watch?v=l4BSJZnEX_c&list=RDMz7ktiWuY5g&index=3',
         'https://youtu.be/l4BSJZnEX_c?si=AhFjWbyqpGXkOOym',
         'https://x.com/BDOSINT/status/1882706137830896094',
-        'https://x.com/BDOSINT/status/1882706137830896094'
+        'https://x.com/BDOSINT/status/1882706137830896094',
     ];
-    if (item.includes("www.youtube.com") || item.includes("youtu.be")) {
-        return "youtube";
+    if (item.includes('www.youtube.com') || item.includes('youtu.be')) {
+        return 'youtube';
     }
-    else if (item.includes("pinterest.com")) {
-        return "pinterest";
+    else if (item.includes('pinterest.com/pin/')) {
+        return 'pinterest';
     }
-    else if (item.includes("twitter.com") || item.includes("https://x.com")) {
-        return "twitter";
+    else if (item.includes('twitter.com') || item.includes('https://x.com')) {
+        return 'twitter';
     }
-    else if (item.includes("instagram.com")) {
-        return "instagram";
+    else if (item.includes('instagram.com')) {
+        return 'instagram';
     }
     else {
-        return "others";
+        return 'others';
     }
 }

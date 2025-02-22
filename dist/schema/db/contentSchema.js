@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ContentModel = void 0;
 const mongoose_1 = require("mongoose");
 const contentSchema = new mongoose_1.Schema({
-    title: { type: String },
+    title: String,
     link: String,
     description: String,
     type: { type: String, default: 'others' },

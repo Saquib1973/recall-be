@@ -11,31 +11,40 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 const contentSchema_1 = require("../schema/db/contentSchema");
 const linkSchema_1 = require("../schema/db/linkSchema");
-const helper_1 = require("../utils/helper");
 const tagSchema_1 = require("../schema/db/tagSchema");
+const helper_1 = require("../utils/helper");
 const contentController = {
     create(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
-            const { title, description, link, tags } = req.body;
-            let type = undefined;
-            if (link) {
-                type = (0, helper_1.findTypeOfContent)(link);
+            let { title, description, link, tags } = req.body;
+            if (!title && !link) {
+                res.status(400).json({
+                    message: 'Nothing to Recall',
+                });
+                return;
             }
-            const sanitizedLink = (link === null || link === void 0 ? void 0 : link.trim()) || undefined;
-            let tagIds = [];
+            //if link is given determine the type of link
+            let type;
+            if (link) {
+                type = (0, helper_1.ContentType)(link.trim());
+            }
+            //storing tags
+            let tagIds = []; //stores ids of all tags (Created and also Already existing ones);
             if (tags && tags.length > 0) {
                 tagIds = yield Promise.all(tags.map((tag) => __awaiter(this, void 0, void 0, function* () {
-                    let tagDoc = yield tagSchema_1.TagModel.findOne({ tag });
-                    if (!tagDoc) {
-                        tagDoc = yield tagSchema_1.TagModel.create({ tag });
+                    tag = tag.trim().toLowerCase();
+                    let tagResponse = yield tagSchema_1.TagModel.findOne({ tag });
+                    if (!tagResponse) {
+                        tagResponse = yield tagSchema_1.TagModel.create({ tag });
                     }
-                    return tagDoc._id;
+                    return tagResponse._id;
                 })));
             }
+            //Create the content
             try {
                 const doc = yield contentSchema_1.ContentModel.create({
                     title,
-                    link: sanitizedLink,
+                    link,
                     tags: tagIds.length > 0 ? tagIds : undefined,
                     description,
                     type,
@@ -59,7 +68,9 @@ const contentController = {
             try {
                 let content = yield contentSchema_1.ContentModel.find({
                     userId: req.userId,
-                }).populate('userId', '-password');
+                })
+                    .populate('userId', '-password')
+                    .sort({ createdAt: -1 });
                 if (!content) {
                     res.status(404).json({
                         message: 'document does not exist',
@@ -79,40 +90,40 @@ const contentController = {
             }
         });
     },
-    getChunk(req, res) {
+    recallChunks(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
-            let { page: no } = req.query;
-            const page = parseInt(no);
-            const limit = page !== 1 ? 10 : 20;
-            if (typeof page !== 'number' || page < 1) {
+            let { query: { page: no }, userId, } = req;
+            const page = parseInt(no); // some ts error still have to study about this
+            const limit = 10;
+            if (typeof page !== 'number' || page < 1 || !no) {
                 res.status(400).json({
                     message: 'Invalid page number',
                 });
                 return;
             }
             try {
-                let content = yield contentSchema_1.ContentModel.find({
-                    userId: req.userId,
-                })
+                let content = yield contentSchema_1.ContentModel.find({ userId })
                     .sort({ createdAt: -1 })
                     .skip((page - 1) * limit)
                     .limit(limit)
                     .populate('userId', '-password')
                     .populate('tags');
-                if (!content) {
+                const length = content.length;
+                if (!content || length === 0) {
                     res.status(404).json({
                         message: 'document does not exist',
                     });
                     return;
                 }
                 res.status(200).json({
-                    message: 'Found the document',
+                    message: 'Found the recall',
+                    length,
                     content,
                 });
             }
             catch (error) {
                 res.status(404).json({
-                    message: "Couldn't get document",
+                    message: "Couldn't get recall",
                 });
                 return;
             }
@@ -120,31 +131,27 @@ const contentController = {
     },
     delete(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
-            //TODO: zod validation
-            const { contentId } = req.body;
+            const { body: { contentId: _id }, userId, } = req;
             try {
-                const content = yield contentSchema_1.ContentModel.deleteMany({
-                    _id: contentId,
-                    userId: req.userId,
-                });
+                const content = yield contentSchema_1.ContentModel.deleteMany({ _id, userId });
                 if (content.deletedCount <= 0) {
                     res.status(404).json({
-                        message: 'No content found to delete or you do not have permission',
+                        message: 'No recall was found to delete or you do not have permission',
                     });
                     return;
                 }
                 res.status(200).json({
-                    message: 'delete doc successful',
+                    message: 'deleted recall successfully',
                 });
             }
             catch (error) {
                 res.status(404).json({
-                    message: "Couldn't delete document",
+                    message: "Couldn't delete recall",
                 });
             }
         });
     },
-    getSharedStatus(req, res) {
+    sharedRecallStatus(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 const link = yield linkSchema_1.LinkModel.findOne({ userId: req.userId });
@@ -168,14 +175,14 @@ const contentController = {
     },
     share(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
-            const { share } = req.body;
+            const { body: { share }, userId, } = req;
             try {
                 if (share) {
-                    const prev = yield linkSchema_1.LinkModel.findOne({ userId: req.userId });
+                    const prev = yield linkSchema_1.LinkModel.findOne({ userId });
                     if (!prev) {
                         const link = yield linkSchema_1.LinkModel.create({
-                            userId: req.userId,
-                            hash: (0, helper_1.generateRandomHash)(10),
+                            userId,
+                            hash: (0, helper_1.generateHash)(10),
                         });
                         res.status(200).json({
                             message: 'created share link',
@@ -208,18 +215,25 @@ const contentController = {
     },
     search(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
-            const { q } = req.query;
+            //search query
+            const q = req.query.q;
+            //if no search query we do early return
             if (!q) {
                 res.status(400).json({ message: 'Search query is required' });
                 return;
             }
             try {
-                const results = yield contentSchema_1.ContentModel.find(
-                //@ts-ignore
-                { $text: { $search: q } }, { score: { $meta: 'textScore' } })
-                    .sort({ score: { $meta: 'textScore' } })
+                const regex = new RegExp(q, 'i'); // 'i' for case-insensitive
+                const results = yield contentSchema_1.ContentModel.find({
+                    $or: [{ title: regex }, { description: regex }, { link: regex }],
+                    userId: req.userId,
+                })
+                    .sort({ createdAt: -1 })
                     .populate('userId', '-password')
                     .populate('tags');
+                console.log(q);
+                console.log(results);
+                console.log(req.userId);
                 res.status(200).json({ message: 'Search results', results });
                 return;
             }
@@ -230,11 +244,11 @@ const contentController = {
             }
         });
     },
-    sharedRecall(req, res) {
+    sharedRecallChunks(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             let { hash } = req.params;
-            console.log(hash);
             try {
+                // first find the link in link model
                 const link = yield linkSchema_1.LinkModel.findOne({ hash });
                 if (!link) {
                     res.status(404).json({
@@ -242,7 +256,6 @@ const contentController = {
                     });
                     return;
                 }
-                console.log(link);
                 try {
                     if (!(link === null || link === void 0 ? void 0 : link.userId)) {
                         res.status(404).json({
@@ -250,23 +263,40 @@ const contentController = {
                         });
                         return;
                     }
+                    let { query: { page: no }, } = req;
+                    const page = parseInt(no);
+                    const limit = 10;
+                    if (typeof page !== 'number' || page < 1 || !no) {
+                        res.status(400).json({
+                            message: 'Invalid page number',
+                        });
+                        return;
+                    }
+                    //now from the link response gather the recalls of link.userId
                     let content = yield contentSchema_1.ContentModel.find({
                         userId: link === null || link === void 0 ? void 0 : link.userId,
-                    }).populate('userId', '-password');
-                    if (!content) {
+                    })
+                        .sort({ createdAt: -1 })
+                        .skip((page - 1) * limit)
+                        .limit(limit)
+                        .populate('userId', '-password')
+                        .populate('tags');
+                    const length = content.length;
+                    if (!content || length === 0) {
                         res.status(404).json({
                             message: 'document does not exist',
                         });
                         return;
                     }
                     res.status(200).json({
-                        message: 'Found the document',
+                        message: 'Found the recall',
+                        length,
                         content,
                     });
                 }
                 catch (error) {
                     res.status(404).json({
-                        message: "Coulcn't get document",
+                        message: "Coulcn't get recall",
                     });
                 }
             }
@@ -277,13 +307,13 @@ const contentController = {
             }
         });
     },
-    getRecallProtected(req, res) {
+    recall(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             var _a;
-            let { id } = req.params;
+            let { params: { id: _id }, userId, } = req;
             try {
-                const content = yield contentSchema_1.ContentModel.findOne({ _id: id });
-                if (((_a = content === null || content === void 0 ? void 0 : content.userId) === null || _a === void 0 ? void 0 : _a.toString()) !== req.userId) {
+                const content = yield contentSchema_1.ContentModel.findOne({ _id });
+                if (((_a = content === null || content === void 0 ? void 0 : content.userId) === null || _a === void 0 ? void 0 : _a.toString()) !== userId) {
                     res.status(403).json({
                         message: 'You are not authorized to view this document',
                     });
@@ -298,12 +328,99 @@ const contentController = {
                 res.status(404).json({
                     message: 'No link found',
                 });
-                return;
             }
         });
     },
-    getRecallOpen(req, res) {
+    sharedRecall(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
+            let { query: { link, id }, } = req;
+            try {
+                const linkResponse = yield linkSchema_1.LinkModel.findOne({ hash: link });
+                if (!linkResponse) {
+                    res.status(404).json({
+                        message: 'No link found',
+                    });
+                    return;
+                }
+                const content = yield contentSchema_1.ContentModel.findOne({ _id: id });
+                if (!content) {
+                    res.status(404).json({
+                        message: 'No content found',
+                    });
+                    return;
+                }
+                if (linkResponse.userId.toString() !== (content === null || content === void 0 ? void 0 : content.userId.toString())) {
+                    res.status(403).json({
+                        message: 'You are not authorized to view this document',
+                    });
+                    return;
+                }
+                res.status(200).json({
+                    message: 'Found the document',
+                    content,
+                });
+            }
+            catch (error) {
+                res.status(404).json({
+                    message: 'No link found',
+                });
+            }
+        });
+    },
+    updateRecall(req, res) {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a;
+            let { params: { id: _id }, userId, body: { title, description, link, tags }, } = req;
+            // Define options for findByIdAndUpdate
+            const options = { new: true, runValidators: true };
+            let type;
+            if (link) {
+                type = (0, helper_1.ContentType)(link.trim());
+            }
+            // Store tags
+            let tagIds = [];
+            if (tags && tags.length > 0) {
+                tagIds = yield Promise.all(tags.map((tag) => __awaiter(this, void 0, void 0, function* () {
+                    tag = tag.trim().toLowerCase();
+                    let tagResponse = yield tagSchema_1.TagModel.findOne({ tag });
+                    if (!tagResponse) {
+                        tagResponse = yield tagSchema_1.TagModel.create({ tag });
+                    }
+                    return tagResponse._id;
+                })));
+            }
+            try {
+                const contentt = yield contentSchema_1.ContentModel.findOne({ _id });
+                if (((_a = contentt === null || contentt === void 0 ? void 0 : contentt.userId) === null || _a === void 0 ? void 0 : _a.toString()) !== userId) {
+                    res.status(403).json({
+                        message: 'You are not authorized to view this document',
+                    });
+                    return;
+                }
+                const content = yield contentSchema_1.ContentModel.findByIdAndUpdate(_id, {
+                    title,
+                    description,
+                    link,
+                    tags: tagIds.length > 0 ? tagIds : undefined,
+                    type,
+                }, options);
+                if (!content) {
+                    res.status(404).json({
+                        message: 'No content found',
+                    });
+                    return;
+                }
+                res.status(200).json({
+                    message: 'Content updated successfully',
+                    content,
+                });
+            }
+            catch (error) {
+                console.error('Error updating content:', error);
+                res.status(500).json({
+                    message: "Couldn't update content",
+                });
+            }
         });
     }
 };
