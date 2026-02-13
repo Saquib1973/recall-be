@@ -1,0 +1,1115 @@
+// ==========================================
+// File: src\controllers\contentController.ts
+// ==========================================
+
+import { Request, Response } from 'express'
+import { ContentModel } from '../schema/db/contentSchema'
+import { LinkModel } from '../schema/db/linkSchema'
+import { TagModel } from '../schema/db/tagSchema'
+import { ContentType, generateHash } from '../utils/helper'
+
+const contentController = {
+  async create(req: Request, res: Response) {
+    let { title, description, link, tags } = req.body
+
+    if (!title && !link) {
+      res.status(400).json({
+        message: 'Nothing to Recall',
+      })
+      return
+    }
+
+    //if link is given determine the type of link
+    let type
+    if (link) {
+      type = ContentType(link.trim())
+    }
+
+    //storing tags
+    let tagIds = [] //stores ids of all tags (Created and also Already existing ones);
+    if (tags && tags.length > 0) {
+      tagIds = await Promise.all(
+        tags.map(async (tag: string) => {
+          tag = tag.trim().toLowerCase()
+          let tagResponse = await TagModel.findOne({ tag })
+          if (!tagResponse) {
+            tagResponse = await TagModel.create({ tag })
+          }
+          return tagResponse._id
+        })
+      )
+    }
+
+    //Create the content
+    try {
+      const doc = await ContentModel.create({
+        title,
+        link,
+        tags: tagIds.length > 0 ? tagIds : undefined,
+        description,
+        type,
+        userId: req.userId,
+      })
+
+      res.status(200).json({
+        message: 'Document created successfully',
+        doc,
+      })
+    } catch (error) {
+      console.error('Error creating document:', error)
+      res.status(500).json({
+        message: "Couldn't create document",
+      })
+    }
+  },
+  async get(req: Request, res: Response) {
+    try {
+      let content = await ContentModel.find({
+        userId: req.userId,
+      })
+        .populate('userId', '-password')
+        .sort({ createdAt: -1 })
+      if (!content) {
+        res.status(404).json({
+          message: 'document does not exist',
+        })
+        return
+      }
+      res.status(200).json({
+        message: 'Found the document',
+        content,
+      })
+    } catch (error) {
+      res.status(404).json({
+        message: "Coulcn't get document",
+      })
+      return
+    }
+  },
+  async recallChunks(req: Request, res: Response) {
+    let {
+      query: { page: no },
+      userId,
+    } = req
+    const page = parseInt(no as string) // some ts error still have to study about this
+    const limit = 10
+
+    if (typeof page !== 'number' || page < 1 || !no) {
+      res.status(400).json({
+        message: 'Invalid page number',
+      })
+      return
+    }
+
+    try {
+      let content = await ContentModel.find({ userId })
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate('userId', '-password')
+        .populate('tags')
+      const length = content.length
+      if (!content || length === 0) {
+        res.status(404).json({
+          message: 'document does not exist',
+        })
+        return
+      }
+
+      res.status(200).json({
+        message: 'Found the recall',
+        length,
+        content,
+      })
+    } catch (error) {
+      res.status(404).json({
+        message: "Couldn't get recall",
+      })
+      return
+    }
+  },
+  async delete(req: Request, res: Response) {
+    const {
+      body: { contentId: _id },
+      userId,
+    } = req
+    try {
+      const content = await ContentModel.deleteMany({ _id, userId })
+      if (content.deletedCount <= 0) {
+        res.status(404).json({
+          message:
+            'No recall was found to delete or you do not have permission',
+        })
+        return
+      }
+      res.status(200).json({
+        message: 'deleted recall successfully',
+      })
+    } catch (error) {
+      res.status(404).json({
+        message: "Couldn't delete recall",
+      })
+    }
+  },
+  async sharedRecallStatus(req: Request, res: Response) {
+    try {
+      const link = await LinkModel.findOne({ userId: req.userId })
+      if (!link) {
+        res.status(404).json({
+          message: 'No link found',
+        })
+        return
+      }
+      res.status(200).json({
+        message: 'Found the link',
+        link,
+      })
+    } catch (error) {
+      res.status(404).json({
+        message: 'No link found',
+      })
+    }
+  },
+  async share(req: Request, res: Response) {
+    const {
+      body: { share },
+      userId,
+    } = req
+    try {
+      if (share) {
+        const prev = await LinkModel.findOne({ userId })
+        if (!prev) {
+          const link = await LinkModel.create({
+            userId,
+            hash: generateHash(10),
+          })
+          res.status(200).json({
+            message: 'created share link',
+            link,
+          })
+        } else {
+          res.status(200).json({
+            message: 'share link already exists',
+            link: prev,
+          })
+          return
+        }
+      } else {
+        await LinkModel.deleteOne({
+          userId: req.userId,
+        })
+        res.status(200).json({
+          message: 'deleted share link',
+        })
+      }
+    } catch (error) {
+      res.status(404).json({
+        message: 'share link could not be created',
+      })
+    }
+  },
+  async search(req: Request, res: Response) {
+    //search query
+    const q = req.query.q as string;
+
+    //if no search query we do early return
+    if (!q) {
+      res.status(400).json({ message: 'Search query is required' });
+      return;
+    }
+
+    try {
+      const regex = new RegExp(q, 'i'); // 'i' for case-insensitive
+
+      const results = await ContentModel.find({
+        $or: [{ title: regex }, { description: regex }, { link: regex }],
+        userId: req.userId,
+      })
+        .sort({ createdAt: -1 })
+        .populate('userId', '-password')
+        .populate('tags');
+
+      console.log(q)
+      console.log(results)
+      console.log(req.userId);
+      res.status(200).json({ message: 'Search results', results });
+      return;
+    } catch (error) {
+      console.error('Error searching:', error);
+      res.status(500).json({ message: 'Internal server error' });
+      return;
+    }
+  },
+  async sharedRecallChunks(req: Request, res: Response) {
+    let { hash } = req.params
+    try {
+      // first find the link in link model
+      const link = await LinkModel.findOne({ hash })
+      if (!link) {
+        res.status(404).json({
+          message: 'No link found',
+        })
+        return
+      }
+
+      try {
+        if (!link?.userId) {
+          res.status(404).json({
+            message: 'No link found',
+          })
+          return
+        }
+
+        let {
+          query: { page: no },
+        } = req
+        const page = parseInt(no as string)
+        const limit = 10
+
+        if (typeof page !== 'number' || page < 1 || !no) {
+          res.status(400).json({
+            message: 'Invalid page number',
+          })
+          return
+        }
+
+        //now from the link response gather the recalls of link.userId
+        let content = await ContentModel.find({
+          userId: link?.userId,
+        })
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .populate('userId', '-password')
+          .populate('tags')
+        const length = content.length
+        if (!content || length === 0) {
+          res.status(404).json({
+            message: 'document does not exist',
+          })
+          return
+        }
+        res.status(200).json({
+          message: 'Found the recall',
+          length,
+          content,
+        })
+      } catch (error) {
+        res.status(404).json({
+          message: "Coulcn't get recall",
+        })
+      }
+    } catch (error) {
+      res.status(404).json({
+        message: 'No link found',
+      })
+    }
+  },
+  async recall(req: Request, res: Response) {
+    let {
+      params: { id: _id },
+      userId,
+    } = req
+    try {
+      const content = await ContentModel.findOne({ _id })
+      if (content?.userId?.toString() !== userId) {
+        res.status(403).json({
+          message: 'You are not authorized to view this document',
+        })
+        return
+      }
+
+      res.status(200).json({
+        message: 'Found the document',
+        content,
+      })
+    } catch (error) {
+      res.status(404).json({
+        message: 'No link found',
+      })
+    }
+  },
+  async sharedRecall(req: Request, res: Response) {
+    let {
+      query: { link, id },
+    } = req
+
+    try {
+      const linkResponse = await LinkModel.findOne({ hash: link })
+      if (!linkResponse) {
+        res.status(404).json({
+          message: 'No link found',
+        })
+        return
+      }
+
+      const content = await ContentModel.findOne({ _id: id })
+      if (!content) {
+        res.status(404).json({
+          message: 'No content found',
+        })
+        return
+      }
+      if (linkResponse.userId.toString() !== content?.userId.toString()) {
+        res.status(403).json({
+          message: 'You are not authorized to view this document',
+        })
+        return
+      }
+
+      res.status(200).json({
+        message: 'Found the document',
+        content,
+      })
+    } catch (error) {
+      res.status(404).json({
+        message: 'No link found',
+      })
+    }
+
+  },
+  async updateRecall(req: Request, res: Response) {
+    let {
+      params: { id: _id },
+      userId,
+      body: { title, description, link, tags },
+    } = req;
+
+    // Define options for findByIdAndUpdate
+    const options = { new: true, runValidators: true };
+
+    let type;
+    if (link) {
+      type = ContentType(link.trim());
+    }
+
+    // Store tags
+    let tagIds = [];
+    if (tags && tags.length > 0) {
+      tagIds = await Promise.all(
+        tags.map(async (tag: string) => {
+          tag = tag.trim().toLowerCase();
+          let tagResponse = await TagModel.findOne({ tag });
+          if (!tagResponse) {
+            tagResponse = await TagModel.create({ tag });
+          }
+          return tagResponse._id;
+        })
+      );
+    }
+
+    try {
+      const contentt = await ContentModel.findOne({ _id })
+      if (contentt?.userId?.toString() !== userId) {
+        res.status(403).json({
+          message: 'You are not authorized to view this document',
+        })
+        return
+      }
+      const content = await ContentModel.findByIdAndUpdate(
+        _id,
+        {
+          title,
+          description,
+          link,
+          tags: tagIds.length > 0 ? tagIds : undefined,
+          type,
+        },
+        options
+      );
+
+      if (!content) {
+        res.status(404).json({
+          message: 'No content found',
+        });
+        return;
+      }
+
+      res.status(200).json({
+        message: 'Content updated successfully',
+        content,
+      });
+    } catch (error) {
+      console.error('Error updating content:', error);
+      res.status(500).json({
+        message: "Couldn't update content",
+      });
+    }
+  }
+
+}
+
+export default contentController
+
+
+// ==========================================
+// File: src\controllers\userController.ts
+// ==========================================
+
+import { Request, Response } from 'express'
+import { UserModel } from '../schema/db/userSchema'
+import jwt from 'jsonwebtoken'
+import env from '../utils/config'
+import {
+  resetPasswordSchema,
+  userSignInSchema,
+  userSignupSchema,
+} from '../schema/zod/userSchema'
+import { Password } from '../utils/helper'
+const userController = {
+  async signup(req: Request, res: Response) {
+    const { username, password } = req.body
+    const alreadyExists = await UserModel.findOne({ username })
+    if (alreadyExists) {
+      res.status(400).json({
+        message: 'Username already in use',
+      })
+      return
+    }
+    const check = userSignupSchema.safeParse({ username, password })
+
+    if (!check.success) {
+      res.status(404).json({
+        message:
+          'make sure username is unique and password is minimum 5 characters long',
+      })
+      return
+    }
+    try {
+      const hashedPassword = await Password.hash(password)
+      const user = await UserModel.create({
+        username,
+        password: hashedPassword,
+      })
+      res.status(200).json({
+        message: 'User signed up successfully',
+      })
+    } catch (error) {
+      res.status(400).json({
+        message: 'Internal server error',
+      })
+    }
+  },
+  async signin(req: Request, res: Response) {
+    const { username, password } = req.body
+
+    const check = userSignInSchema.safeParse({ username, password })
+    if (!check.success) {
+      res.status(400).json({ message: 'Invalid username or password format' })
+      return
+    }
+
+    try {
+      const user = await UserModel.findOne({ username })
+      if (!user) {
+        res.status(401).json({
+          message: 'Username is invalid',
+        })
+        return
+      }
+
+      const isMatch = await Password.compare(password, user.password as string)
+      if (!isMatch) {
+        res.status(401).json({ message: 'Password is wrong' })
+        return
+      }
+
+      const token = jwt.sign({ id: user._id }, env.JWT_SECRET)
+      res.status(200).json({ token, message: 'Successfull' })
+    } catch (error) {
+      console.error('Error during signin:', error)
+      res.status(500).json({ message: 'Internal server error' })
+    }
+  },
+  async resetPassword(req: Request, res: Response) {
+    const { password, newPassword } = req.body
+    const { userId: _id } = req
+    try {
+      //check if user exists
+      const user = await UserModel.findOne({ _id })
+      if (!user) {
+        res.status(401).json({
+          message: 'Username is invalid',
+        })
+        return
+      }
+
+      //compare the password
+      const isMatch = await Password.compare(password, user.password as string)
+      if (!isMatch) {
+        res.status(401).json({ message: 'Password is wrong' })
+        return
+      }
+      const samePassword = await Password.compare(newPassword, user.password as string);
+      if (samePassword) {
+        res.status(400).json({ message: 'New password cannot be the same as the old password' })
+        return
+      }
+
+      //password zod validation
+      const check = resetPasswordSchema.safeParse({ password: newPassword })
+      if (!check.success) {
+        res.status(400).json({ message: 'Invalid password format' })
+        return
+      }
+
+      //hash password
+      const hashedPassword = await Password.hash(newPassword)
+
+      //upadte password in db
+      const updatedUser = await UserModel.findByIdAndUpdate(
+        { _id },
+        { password: hashedPassword }
+      )
+      if (!updatedUser) {
+        res
+          .status(400)
+          .json({ message: 'Could not reset the password try again!' })
+        return
+      }
+
+      res.status(202).json({
+        message: 'password changed successfully',
+      })
+    } catch (error) {
+      console.error('Error during signin:', error)
+      res.status(500).json({ message: 'Internal server error' })
+    }
+  },
+  async username(req: Request, res: Response) {
+    const { username } = req.body
+    const user = await UserModel.findOne({ username })
+    if (user) {
+      res.status(200).json({
+        value: false,
+        message: 'Username already in use',
+      })
+      return
+    }
+    res.status(200).json({
+      value: true,
+      message: 'Username is available',
+    })
+  },
+}
+
+export default userController
+
+
+// ==========================================
+// File: src\index.ts
+// ==========================================
+
+import 'dotenv/config'
+import express, { Request, Response } from 'express'
+import userRouter from './routes/userRoutes'
+import connectDb from './utils/db'
+import contentRouter from './routes/contentRoutes'
+import cors from 'cors'
+import env from './utils/config'
+
+const app = express()
+let healthCheckCount = 0
+
+app.use(express.json())
+
+app.use(
+  cors({
+    origin: ['http://localhost:3000', 'https://recalll.vercel.app'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  })
+)
+
+app.get('/', (req: Request, res: Response) => {
+  console.log('Root endpoint hit')
+  res.status(200).send('Server is running')
+})
+
+app.get('/health', (req: Request, res: Response) => {
+  console.log('Health endpoint hit')
+  res.status(200).send(`/health call : ${healthCheckCount++}`)
+})
+
+app.use('/api/v1/user', userRouter)
+app.use('/api/v1/content', contentRouter)
+
+// Start the server first
+const PORT = process.env.PORT || 3000
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`)
+})
+
+// Then connect to DB
+connectDb().catch((err) => {
+  console.error('Failed to connect to database:', err)
+})
+
+export default app
+
+
+// ==========================================
+// File: src\middleware\authMiddleware.ts
+// ==========================================
+
+import type { Request,Response,NextFunction } from 'express';
+import jwt, { type JwtPayload } from "jsonwebtoken"
+import env from '../utils/config';
+export const userAuthMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  const header = req.headers['authorization'];
+  const decoded = jwt.verify(header as string, env.JWT_SECRET);
+
+  if (decoded) {
+    req.userId = (decoded as JwtPayload).id;
+    next();
+  } else {
+    res.status(403).send("You are not logged in")
+  }
+}
+
+// ==========================================
+// File: src\override.d.ts
+// ==========================================
+
+export {}
+
+declare global {
+  namespace Express {
+    export interface Request {
+      userId?: string
+    }
+  }
+}
+
+
+// ==========================================
+// File: src\routes\contentRoutes.ts
+// ==========================================
+
+import express from 'express'
+import contentController from '../controllers/contentController'
+import { userAuthMiddleware } from '../middleware/authMiddleware'
+
+const contentRouter = express.Router()
+
+contentRouter.post('/', userAuthMiddleware, contentController.create)
+contentRouter.get('/', userAuthMiddleware, contentController.get)
+contentRouter.delete('/', userAuthMiddleware, contentController.delete)
+contentRouter.get('/chunk', userAuthMiddleware, contentController.recallChunks)
+contentRouter.get(
+  '/share',
+  userAuthMiddleware,
+  contentController.sharedRecallStatus
+)
+contentRouter.post('/share', userAuthMiddleware, contentController.share)
+contentRouter.get('/search', userAuthMiddleware, contentController.search);
+contentRouter.get('/shared/:hash', contentController.sharedRecallChunks)
+contentRouter.get(
+  '/recall/shared/',
+  userAuthMiddleware,
+  contentController.sharedRecall
+)
+contentRouter.put("/recall/:id", userAuthMiddleware, contentController.updateRecall);
+contentRouter.get(
+  '/recall/:id',
+  userAuthMiddleware,
+  contentController.recall
+)
+export default contentRouter
+
+
+// ==========================================
+// File: src\routes\userRoutes.ts
+// ==========================================
+
+import express from "express";
+import userController from '../controllers/userController';
+import { userAuthMiddleware } from '../middleware/authMiddleware';
+
+const userRouter = express.Router();
+
+userRouter.post("/signup", userController.signup);
+userRouter.post("/signin", userController.signin);
+userRouter.post("/username", userController.username);
+userRouter.post("/reset-password",userAuthMiddleware, userController.resetPassword);
+
+export default userRouter;
+
+// ==========================================
+// File: src\schema\db\contentSchema.ts
+// ==========================================
+
+import { model, Schema } from 'mongoose'
+
+const contentSchema = new Schema(
+  {
+    title: String,
+    link: String,
+    description: String,
+    type: { type: String, default: 'others' },
+    tags: [{ type: Schema.Types.ObjectId, ref: 'tag' }],
+    userId: { type: Schema.Types.ObjectId, ref: 'user', required: true },
+  },
+  {
+    timestamps: true,
+  }
+)
+contentSchema.index({ title: 'text', description: 'text', tags: 'text' })
+
+export const ContentModel = model('content', contentSchema)
+
+
+// ==========================================
+// File: src\schema\db\linkSchema.ts
+// ==========================================
+
+import { model, Schema } from 'mongoose'
+
+const linkSchema = new Schema({
+  hash:String,
+  userId: { type: Schema.Types.ObjectId, ref: 'user', required: true ,unique:true},
+})
+
+export const LinkModel = model('link', linkSchema)
+
+
+// ==========================================
+// File: src\schema\db\tagSchema.ts
+// ==========================================
+
+import { model, Schema } from 'mongoose'
+
+const tagSchema = new Schema({
+  tag: { type: String, unique: true },
+})
+
+export const TagModel = model('tag', tagSchema)
+
+
+// ==========================================
+// File: src\schema\db\userSchema.ts
+// ==========================================
+
+import { model, Schema } from 'mongoose';
+
+const userSchema = new Schema({
+  username: { type: String, unique: true },
+  password: String,
+})
+
+export const UserModel = model('user', userSchema);
+
+
+// ==========================================
+// File: src\schema\zod\contentSchema.ts
+// ==========================================
+
+import { z } from "zod";
+
+
+export const tagValidationZod = z.object({
+  tag:z.string().trim().toLowerCase()
+})
+
+// ==========================================
+// File: src\schema\zod\userSchema.ts
+// ==========================================
+
+import { z } from 'zod'
+
+export const userSignupSchema = z.object({
+  username: z.string().transform((username) => username.trim().toLowerCase()),
+  password: z
+    .string()
+    .min(5, 'Password must be atleast 5 characters long')
+    .transform((password) => password.trim()),
+})
+export const userSignInSchema = z.object({
+  username: z.string().transform((username) => username.trim().toLowerCase()),
+  password: z
+    .string()
+    .min(5, 'Password must be atleast 5 characters long')
+    .transform((password) => password.trim()),
+})
+export const resetPasswordSchema = z.object({
+  password: z
+    .string()
+    .min(5, 'Password must be atleast 5 characters long')
+    .transform((password) => password.trim()),
+})
+
+
+
+// ==========================================
+// File: src\utils\config.ts
+// ==========================================
+
+const env = {
+  PORT : process.env.PORT || 3000,
+  MONGODB_URL : process.env.MONGODB_URL || null,
+  JWT_SECRET : process.env.JWT_SECRET || "TEST",
+}
+
+export default env;
+
+// ==========================================
+// File: src\utils\db.ts
+// ==========================================
+
+import mongoose from 'mongoose'
+import env from './config'
+
+async function connectDb() {
+  if (!env.MONGODB_URL) throw new Error('MONGODB_URL is not set')
+
+  return mongoose
+    .connect(env.MONGODB_URL)
+    .then(() => {
+      console.log('Connected to the database')
+    })
+    .catch((err) => {
+      console.log('Error connecting to the database', err)
+      process.exit(1)
+    })
+}
+
+export default connectDb
+
+
+// ==========================================
+// File: src\utils\helper.ts
+// ==========================================
+
+import bcrypt from 'bcryptjs'
+export class Password {
+  static async hash(password: string): Promise<string> {
+    return await bcrypt.hash(password, 10)
+  }
+
+  static async compare(
+    password: string,
+    hashPassword: string
+  ): Promise<boolean> {
+    return await bcrypt.compare(password, hashPassword)
+  }
+}
+
+export function generateHash(length: number) {
+  let options = 'qwertyuiopasdfghjklzxcvbnm1234567890'
+  let len = options.length
+  let hash = ''
+  for (let i = 0; i < length; i++) {
+    hash += options[Math.floor(Math.random() * len)]
+  }
+  return hash
+}
+
+export function ContentType(item: string) {
+  const testLink = [
+    'https://youtu.be/NKO-CeS1z8c?si=t0ptVmS4XldR0TW-',
+    'https://www.youtube.com/watch?v=NKO-CeS1z8c',
+    'https://www.youtube.com/embed/NKO-CeS1z8c?si=WFpqEs7cpVUT_H4q',
+    'https://www.youtube.com/watch?v=Mz7ktiWuY5g&list=RDMz7ktiWuY5g&start_radio=1&rv=Mz7ktiWuY5g',
+    'https://www.youtube.com/watch?v=l4BSJZnEX_c&list=RDMz7ktiWuY5g&index=3',
+    'https://youtu.be/l4BSJZnEX_c?si=AhFjWbyqpGXkOOym',
+    'https://x.com/BDOSINT/status/1882706137830896094',
+    'https://x.com/BDOSINT/status/1882706137830896094',
+  ]
+
+  if (item.includes('www.youtube.com') || item.includes('youtu.be')) {
+    return 'youtube'
+  } else if (item.includes('pinterest.com/pin/')) {
+    return 'pinterest'
+  } else if (item.includes('twitter.com') || item.includes('https://x.com')) {
+    return 'twitter'
+  } else if (item.includes('instagram.com')) {
+    return 'instagram'
+  } else {
+    return 'others'
+  }
+}
+
+
+// ==========================================
+// File: src\utils\seed.ts
+// ==========================================
+
+const additionalData = [
+  {
+    title: 'Pinterest Pin 5',
+    link: 'https://in.pinterest.com/pin/123456789/',
+    description: 'Explore creative DIY projects on Pinterest.',
+    type: 'pinterest',
+    tags: ['DIY', 'crafts'],
+  },
+  {
+    title: 'Pinterest Pin 6',
+    link: 'https://in.pinterest.com/pin/987654321/',
+    description: 'Discover delicious recipes on Pinterest.',
+    type: 'pinterest',
+    tags: ['recipes', 'food'],
+  },
+  {
+    title: 'Pinterest Pin 7',
+    link: 'https://in.pinterest.com/pin/456789123/',
+    description: 'Find inspiration for your next travel destination.',
+    type: 'pinterest',
+    tags: ['travel', 'inspiration'],
+  },
+  {
+    title: 'Pinterest Pin 8',
+    link: 'https://in.pinterest.com/pin/321654987/',
+    description: 'Get tips for improving your photography skills.',
+    type: 'pinterest',
+    tags: ['photography', 'tips'],
+  },
+  {
+    title: 'Tweet by TechGuru',
+    link: 'https://x.com/TechGuru/status/123456789',
+    description: 'TechGuru shares insights on the latest gadgets.',
+    type: 'twitter',
+    tags: ['tech', 'gadgets'],
+  },
+  {
+    title: 'Tweet by FitnessExpert',
+    link: 'https://x.com/FitnessExpert/status/987654321',
+    description: 'FitnessExpert shares tips for staying healthy.',
+    type: 'twitter',
+    tags: ['fitness', 'health'],
+  },
+  {
+    title: 'Tweet by Traveler',
+    link: 'https://x.com/Traveler/status/456789123',
+    description: 'Traveler shares breathtaking travel photos.',
+    type: 'twitter',
+    tags: ['travel', 'photography'],
+  },
+  {
+    title: 'Tweet by Foodie',
+    link: 'https://x.com/Foodie/status/321654987',
+    description: 'Foodie shares delicious food recipes.',
+    type: 'twitter',
+    tags: ['food', 'recipes'],
+  },
+  {
+    title: 'YouTube Video 5',
+    link: 'https://www.youtube.com/watch?v=abc123',
+    description: 'Learn how to build a website from scratch.',
+    type: 'youtube',
+    tags: ['web development', 'tutorial'],
+  },
+  {
+    title: 'YouTube Video 6',
+    link: 'https://www.youtube.com/watch?v=def456',
+    description: 'Explore the world of artificial intelligence.',
+    type: 'youtube',
+    tags: ['AI', 'technology'],
+  },
+  {
+    title: 'YouTube Video 7',
+    link: 'https://www.youtube.com/watch?v=ghi789',
+    description: 'Discover the secrets of successful entrepreneurs.',
+    type: 'youtube',
+    tags: ['entrepreneurship', 'success'],
+  },
+  {
+    title: 'YouTube Video 8',
+    link: 'https://www.youtube.com/watch?v=jkl012',
+    description: 'Watch a tutorial on advanced photography techniques.',
+    type: 'youtube',
+    tags: ['photography', 'tutorial'],
+  },
+  {
+    title: 'My Note on Productivity',
+    description: 'Here are some tips to improve your productivity.',
+    type: 'note',
+    tags: ['productivity', 'tips'],
+  },
+  {
+    title: 'My Note on Mindfulness',
+    description: 'Practice mindfulness to reduce stress and improve focus.',
+    type: 'note',
+    tags: ['mindfulness', 'wellness'],
+  },
+  {
+    title: 'My Note on Time Management',
+    description: 'Effective time management strategies for busy professionals.',
+    type: 'note',
+    tags: ['time management', 'productivity'],
+  },
+  {
+    title: 'My Note on Healthy Eating',
+    description: 'Tips for maintaining a healthy diet.',
+    type: 'note',
+    tags: ['health', 'nutrition'],
+  },
+  {
+    title: 'Pinterest Pin 9',
+    link: 'https://in.pinterest.com/pin/654321987/',
+    description: 'Find inspiration for your next home renovation project.',
+    type: 'pinterest',
+    tags: ['home renovation', 'inspiration'],
+  },
+  {
+    title: 'Pinterest Pin 10',
+    link: 'https://in.pinterest.com/pin/321987654/',
+    description: 'Explore creative ways to organize your workspace.',
+    type: 'pinterest',
+    tags: ['organization', 'workspace'],
+  },
+  {
+    title: 'Tweet by MotivationalSpeaker',
+    link: 'https://x.com/MotivationalSpeaker/status/123987654',
+    description: 'MotivationalSpeaker shares inspiring quotes.',
+    type: 'twitter',
+    tags: ['motivation', 'inspiration'],
+  },
+  {
+    title: 'Tweet by BookLover',
+    link: 'https://x.com/BookLover/status/654321987/',
+    description: 'BookLover shares recommendations for must-read books.',
+    type: 'twitter',
+    tags: ['books', 'reading'],
+  },
+]
+const bulkData = [
+  // Existing data
+  {
+    title: 'Pinterest Pin 1',
+    link: 'https://in.pinterest.com/pin/1477812373598664/',
+    description: 'A beautiful Pinterest pin about design inspiration.',
+    type: 'pinterest',
+    tags: ['design', 'inspiration'],
+  },
+  // Add more existing data here...
+
+  // Add the transformed new data
+  ...additionalData,
+
+]
+const addContent = async (content: any) => {
+  const response = await fetch('http://localhost:5000/api/v1/content/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3OTI0YWE1NDc3MmQ5Y2M1YjAyZDg0YyIsImlhdCI6MTczNzY0MDYyNn0.K3ZSTAqQuzdydz4ez1jRE9IL-Cnkc7R-6IB7JbMCcM0',
+    },
+    body: JSON.stringify(content),
+  })
+
+  if (response.ok) {
+    console.log(`Added: ${content.title}`)
+  } else {
+    console.error(`Failed to add: ${content.title}`, await response.json())
+  }
+}
+
+const addBulkData = async () => {
+  for (const content of bulkData) {
+    await addContent(content)
+  }
+}
+
+addBulkData()
